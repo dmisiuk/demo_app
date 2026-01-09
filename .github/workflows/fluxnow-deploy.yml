@@ -1,0 +1,78 @@
+name: 🚀 Build and Push Image
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: null
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |-
+            type=sha,prefix=sha-
+            type=ref,event=branch
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+      - name: Update Kubernetes manifests
+        if: github.ref == 'refs/heads/main'
+        run: >-
+          set -euo pipefail
+
+
+          # Use the short SHA as the tag (matching the meta tags)
+
+          TAG="sha-${GITHUB_SHA::7}"
+
+
+          echo "Updating image tag to $TAG in deploy/k8s/app.yaml"
+
+
+          # Update the image tag in app.yaml
+
+          # Matches 'image: ghcr.io/undefined/undefined:...' or similar
+
+          sed -i "s|image: ghcr.io/undefined/undefined:.*|image:
+          ghcr.io/undefined/undefined:$TAG|g" deploy/k8s/app.yaml
+
+
+          git config --global user.name "fluxnow-bot"
+
+          git config --global user.email "bot@fluxnow.dev"
+
+
+          if ! git diff --quiet deploy/k8s/app.yaml; then
+            git add deploy/k8s/app.yaml
+            git commit -m "🚀 deploy: update image to $TAG [skip ci]"
+            git push
+            echo "✅ Manifest updated and pushed"
+          else
+            echo "⏭️ No changes to manifest (tag already exists)"
+          fi

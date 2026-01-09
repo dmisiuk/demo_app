@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-app
+  namespace: demo-app-dmisiuk
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: demo-app
+  template:
+    metadata:
+      labels:
+        app: demo-app
+    spec:
+      imagePullSecrets:
+        - name: ghcr-creds
+      containers:
+        - name: demo-app
+          image: ghcr.io/dmisiuk/demo_app:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: PORT
+              value: "3000"
+            - name: HTTP_HOST
+              value: 0.0.0.0
+          resources:
+            requests:
+              cpu: 125m
+              memory: 256Mi
+            limits:
+              cpu: 250m
+              memory: 512Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-app
+  namespace: demo-app-dmisiuk
+spec:
+  selector:
+    app: demo-app
+  ports:
+    - port: 80
+      targetPort: 3000
+  type: ClusterIP
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: demo-app
+  namespace: demo-app-dmisiuk
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  rules:
+    - host: demo-app.openfab.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: demo-app
+                port:
+                  number: 80
+
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: demo-app-secrets
+  namespace: demo-app-dmisiuk
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: openbao-store
+    kind: ClusterSecretStore
+  target:
+    name: demo-app-secrets
+    creationPolicy: Owner
+  data: []
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ghcr-creds
+  namespace: demo-app-dmisiuk
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: eyAiYXV0aHMiOiB7IH0gfQ==
